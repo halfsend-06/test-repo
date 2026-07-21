@@ -125,47 +125,36 @@ jobs:
           STAGE=""
           TRIGGER_SOURCE=""
 
-          # Helper: check actor has write+ permission on the repo.
-          # Uses the collaborator permission API which correctly resolves org
-          # membership regardless of visibility (private vs public).
-          # See: github/gh-aw-mcpg#2862
-          # Returns 0 if username has write access, 1 if not, 2 on operational failure
-          # (mktemp/gh api errors). Callers must distinguish 1 vs 2 when messaging.
-          has_write_permission() {
-            local username="${1:-}"
-            if [[ -z "${username}" ]]; then
-              return 1
-            fi
-            local role api_err
+          # Collaborator role_name vs min (write|triage). See #5223 / ADR 0054.
+          # API resolves org membership regardless of visibility (gh-aw-mcpg#2862).
+          has_repo_permission() {
+            local username="${1:-}" min="${2:-write}" role api_err
+            [[ -z "${username}" ]] && return 1
             api_err=$(mktemp) || {
               echo "::warning::Failed to create temp file for permission check of ${username}" >&2
-              return 2
+              return 1
             }
             role=$(gh api "repos/${GITHUB_REPOSITORY}/collaborators/${username}/permission" \
               --jq '.role_name' 2>"${api_err}") || {
               echo "::warning::Permission API call failed for ${username}: $(cat "${api_err}")" >&2
               rm -f "${api_err}"
-              return 2
+              return 1
             }
             rm -f "${api_err}"
             case "${role}" in
               admin|maintain|write) return 0 ;;
+              triage) [[ "${min}" == "triage" ]] && return 0 || return 1 ;;
               *) return 1 ;;
             esac
           }
 
-          # Slash command authorization (comment-triggered paths)
-          is_authorized() {
-            has_write_permission "${COMMENT_USER_LOGIN}"
-          }
+          is_authorized() { has_repo_permission "${COMMENT_USER_LOGIN}" "${1:-write}"; }
+          is_event_actor_authorized() { has_repo_permission "${1:-}" "${2:-write}"; }
+          is_issue_author() { [[ "${COMMENT_USER_LOGIN}" == "${ISSUE_USER_LOGIN}" ]]; }
 
-          # Event-level authorization (non-comment triggers)
-          is_event_actor_authorized() {
-            has_write_permission "${1:-}"
-          }
-
-          is_issue_author() {
-            [[ "${COMMENT_USER_LOGIN}" == "${ISSUE_USER_LOGIN}" ]]
+          # Org bot accounts bypass the collaborator permission API (#5188).
+          is_org_bot() {
+            [[ "${1:-}" == "${ORG_NAME}-coder[bot]" || "${1:-}" == "${ORG_NAME}-code[bot]" ]]
           }
 
           has_label() {
@@ -178,34 +167,6 @@ jobs:
             return 1
           }
 
-          # Helper: check if the comment is from a user
-          comment_from_user() {
-            if [[ "${COMMENT_USER_TYPE}" == "Bot" ]]; then
-              echo "::notice::Skipping dispatch for bot comment"
-              return 1
-            fi
-            return 0
-          }
-
-          # Helper: check if the comment is from an authorized user
-          comment_from_authorized_user() {
-            if ! comment_from_user; then
-              return 1
-            fi
-            local auth_rc=0
-            is_authorized || auth_rc=$?
-            case "${auth_rc}" in
-              0) return 0 ;;
-              1)
-                echo "::notice::Skipping dispatch for unauthorized comment from ${COMMENT_USER_LOGIN}"
-              ;;
-              2)
-                echo "::notice::Skipping dispatch: failed to verify permissions for ${COMMENT_USER_LOGIN}"
-              ;;
-            esac
-            return 1
-          }
-
           COMMAND=""
           if [[ -n "${COMMENT_BODY:-}" ]]; then
             COMMAND="$(printf '%s\n' "${COMMENT_BODY}" | head -1 | tr -d '\r' | awk '{print $1}')"
@@ -215,34 +176,34 @@ jobs:
             issue_comment)
               case "${COMMAND}" in
                 /fs-triage)
-                  if comment_from_authorized_user; then
+                  if [[ "${COMMENT_USER_TYPE}" != "Bot" ]] && is_authorized triage; then
                     STAGE="triage"
                   fi
                   ;;
                 /fs-code)
                   if [[ "${ISSUE_IS_PR}" == "false" ]]; then
-                    if comment_from_authorized_user; then
+                    if [[ "${COMMENT_USER_TYPE}" != "Bot" ]] && is_authorized; then
                       STAGE="code"
                     fi
                   fi
                   ;;
                 /fs-review)
                   if [[ "${ISSUE_IS_PR}" == "true" ]]; then
-                    if comment_from_authorized_user; then
+                    if [[ "${COMMENT_USER_TYPE}" != "Bot" ]] && is_authorized triage; then
                       STAGE="review"
                     fi
                   fi
                   ;;
                 /fs-fix)
                   if [[ "${ISSUE_IS_PR}" == "true" ]]; then
-                    if comment_from_authorized_user; then
+                    if [[ "${COMMENT_USER_TYPE}" != "Bot" ]] && is_authorized; then
                       STAGE="fix"
                       TRIGGER_SOURCE="${COMMENT_USER_LOGIN}"
                     fi
                   fi
                   ;;
                 /fs-retro|/fullsend)
-                  if comment_from_authorized_user; then
+                  if [[ "${COMMENT_USER_TYPE}" != "Bot" ]] && is_authorized; then
                     if [[ "${COMMAND}" == "/fullsend" ]]; then
                       SECOND_WORD="$(printf '%s\n' "${COMMENT_BODY}" | head -1 | tr -d '\r' | awk '{print $2}')"
                       if [[ "${SECOND_WORD}" == "retro" ]]; then
@@ -254,7 +215,7 @@ jobs:
                   fi
                   ;;
                 /fs-prioritize)
-                  if comment_from_authorized_user; then
+                  if [[ "${COMMENT_USER_TYPE}" != "Bot" ]] && is_authorized; then
                     STAGE="prioritize"
                   fi
                   ;;
@@ -263,7 +224,7 @@ jobs:
                   # re-trigger triage by providing clarification on needs-info
                   # issues. Full write-permission check is not required here.
                   if has_label "needs-info" && ! has_label "feature"; then
-                    if comment_from_user; then
+                    if [[ "${COMMENT_USER_TYPE}" != "Bot" ]]; then
                       if [[ "${COMMENT_AUTHOR_ASSOC}" != "NONE" ]] || is_issue_author; then
                         STAGE="triage"
                       fi
@@ -275,18 +236,21 @@ jobs:
 
             issues)
               if [[ "${EVENT_ACTION}" == "opened" ]]; then
-                if is_event_actor_authorized "${ISSUE_USER_LOGIN}"; then
+                if is_event_actor_authorized "${ISSUE_USER_LOGIN}" triage; then
                   STAGE="triage"
                 fi
               elif [[ "${EVENT_ACTION}" == "edited" ]]; then
-                if is_event_actor_authorized "${EVENT_SENDER_LOGIN}"; then
+                if is_event_actor_authorized "${EVENT_SENDER_LOGIN}" triage; then
                   STAGE="triage"
                 fi
               elif [[ "${EVENT_ACTION}" == "labeled" ]]; then
                 if [[ "${TRIGGERING_LABEL}" == "ready-for-triage" ]]; then
                   STAGE="triage"
                 elif [[ "${TRIGGERING_LABEL}" == "ready-to-code" ]]; then
-                  STAGE="code"
+                  # Mutation stage: write+ labeler, or bots (agent handoff).
+                  if [[ "${EVENT_SENDER_LOGIN}" =~ \[bot\]$ ]] || is_event_actor_authorized "${EVENT_SENDER_LOGIN}"; then
+                    STAGE="code"
+                  fi
                 elif [[ "${TRIGGERING_LABEL}" == "ready-for-review" ]]; then
                   if [[ "${ISSUE_IS_PR}" == "true" ]]; then
                     STAGE="review"
@@ -298,7 +262,7 @@ jobs:
             pull_request_target)
               case "${EVENT_ACTION}" in
                 opened|synchronize|ready_for_review)
-                  if is_event_actor_authorized "${PR_USER_LOGIN}"; then
+                  if is_org_bot "${PR_USER_LOGIN}" || is_event_actor_authorized "${PR_USER_LOGIN}" triage; then
                     STAGE="review"
                   fi
                   ;;
@@ -308,6 +272,8 @@ jobs:
                   fi
                   ;;
                 closed)
+                  # Intentional ungated: any closer may trigger read-only retro
+                  # (lifecycle accounting). See ADR 0054 #5223 note.
                   STAGE="retro"
                   ;;
               esac
@@ -317,14 +283,14 @@ jobs:
               if [[ "${EVENT_ACTION}" == "submitted" && "${REVIEW_STATE}" == "changes_requested" ]]; then
                 REVIEW_BOT="${ORG_NAME}-review[bot]"
                 if [[ "${REVIEW_USER_LOGIN}" == "${REVIEW_BOT}" ]]; then
+                  # Human PRs need fullsend-fix + write+ author (not triage-only).
                   if [[ -n "${PR_HEAD_REPO}" && -n "${PR_BASE_REPO}" ]]; then
                     if [[ "${PR_HEAD_REPO}" == "${PR_BASE_REPO}" ]]; then
                       if ! has_label "fullsend-no-fix" "${PR_LABELS}"; then
-                        # Human PRs require the fullsend-fix label to auto-trigger
-                        # the fix agent. The /fs-fix slash command (line ~129)
-                        # intentionally bypasses this gate — authorized users can
-                        # always trigger fix manually regardless of labels.
-                        if [[ "${PR_USER_LOGIN}" =~ \[bot\]$ ]] || has_label "fullsend-fix" "${PR_LABELS}"; then
+                        if [[ "${PR_USER_LOGIN}" =~ \[bot\]$ ]]; then
+                          STAGE="fix"
+                          TRIGGER_SOURCE="${REVIEW_USER_LOGIN}"
+                        elif has_label "fullsend-fix" "${PR_LABELS}" && has_repo_permission "${PR_USER_LOGIN}" write; then
                           STAGE="fix"
                           TRIGGER_SOURCE="${REVIEW_USER_LOGIN}"
                         fi
