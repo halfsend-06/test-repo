@@ -123,6 +123,22 @@ class TestSaveFileEdgeCases:
         save_file(path, "new content")
         assert load_file(path) == "new content"
 
+    def test_preserves_existing_file_permissions(self, tmp_dir):
+        """Overwriting a file preserves its original permissions."""
+        path = os.path.join(tmp_dir, "perms.txt")
+        save_file(path, "initial")
+        os.chmod(path, 0o644)
+        save_file(path, "updated")
+        mode = os.stat(path).st_mode & 0o777
+        assert mode == 0o644, f"Expected 0o644, got {oct(mode)}"
+
+    def test_new_file_default_permissions(self, tmp_dir):
+        """New file gets default mkstemp permissions (0o600)."""
+        path = os.path.join(tmp_dir, "new.txt")
+        save_file(path, "content")
+        mode = os.stat(path).st_mode & 0o777
+        assert mode == 0o600, f"Expected 0o600, got {oct(mode)}"
+
     def test_rejects_non_string_content(self, tmp_dir):
         """Non-string content raises TypeError."""
         path = os.path.join(tmp_dir, "bad.txt")

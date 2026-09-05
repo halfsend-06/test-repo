@@ -8,6 +8,7 @@ characters pushed the actual byte size beyond the allocated buffer.
 """
 
 import os
+import stat
 import tempfile
 
 # Prior to the fix, the save path used a fixed 64KB buffer and calculated
@@ -41,8 +42,17 @@ def save_file(path: str, content: str) -> None:
     # multibyte characters mean byte_length > character_count.
     data = content.encode("utf-8")
 
-    dir_name = os.path.dirname(os.path.abspath(path))
+    abs_path = os.path.abspath(path)
+    dir_name = os.path.dirname(abs_path)
     os.makedirs(dir_name, exist_ok=True)
+
+    # Capture existing file permissions so we can restore them after
+    # the atomic replace (mkstemp creates files with 0o600).
+    original_mode = None
+    try:
+        original_mode = stat.S_IMODE(os.stat(abs_path).st_mode)
+    except FileNotFoundError:
+        pass
 
     # Write atomically: write to a temp file in the same directory,
     # then rename. This prevents partial writes on crash.
@@ -51,12 +61,14 @@ def save_file(path: str, content: str) -> None:
         offset = 0
         while offset < len(data):
             chunk = data[offset : offset + CHUNK_SIZE]
-            os.write(fd, chunk)
-            offset += len(chunk)
+            written = os.write(fd, chunk)
+            offset += written
         os.fsync(fd)
         os.close(fd)
         fd = -1  # Mark as closed
-        os.replace(tmp_path, path)
+        os.replace(tmp_path, abs_path)
+        if original_mode is not None:
+            os.chmod(abs_path, original_mode)
     except BaseException:
         if fd >= 0:
             os.close(fd)
