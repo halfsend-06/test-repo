@@ -4,9 +4,6 @@ Handles document serialization with proper UTF-8 encoding support,
 including multibyte characters (emoji, CJK, etc.) at any file size.
 """
 
-import os
-import tempfile
-
 # Buffer size threshold for chunked writes (64KB)
 BUFFER_SIZE = 65536
 
@@ -27,18 +24,9 @@ def save_file(content: str, filepath: str) -> None:
     encoded = content.encode("utf-8")
     byte_length = len(encoded)
 
-    # Write atomically via a temp file to avoid partial writes on crash
-    dir_name = os.path.dirname(os.path.abspath(filepath))
-    fd, tmp_path = tempfile.mkstemp(dir=dir_name)
-    try:
+    with open(filepath, "wb") as f:
         offset = 0
         while offset < byte_length:
             chunk = encoded[offset : offset + BUFFER_SIZE]
-            os.write(fd, chunk)
+            f.write(chunk)
             offset += len(chunk)
-        os.close(fd)
-        os.replace(tmp_path, filepath)
-    except BaseException:
-        os.close(fd)
-        os.unlink(tmp_path)
-        raise

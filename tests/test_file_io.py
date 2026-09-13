@@ -8,6 +8,8 @@ overflow that caused the segfault in v2.3.1.
 import os
 import tempfile
 
+import pytest
+
 from src.file_io import BUFFER_SIZE, save_file
 
 
@@ -93,3 +95,9 @@ def test_save_small_file():
         assert result == content
     finally:
         os.unlink(path)
+
+
+def test_save_to_invalid_path():
+    """Writing to a non-existent directory raises OSError."""
+    with pytest.raises(OSError):
+        save_file("hello", "/no/such/directory/file.txt")
