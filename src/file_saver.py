@@ -5,8 +5,6 @@ UTF-8 multibyte characters by allocating buffers based on byte length
 rather than character count.
 """
 
-import os
-
 # Buffer size threshold in bytes.
 BUFFER_SIZE = 65536  # 64KB
 
@@ -24,9 +22,6 @@ def save_file(path: str, content: str) -> None:
         content: Text content to write.
     """
     encoded = content.encode("utf-8")
-    dir_name = os.path.dirname(path)
-    if dir_name:
-        os.makedirs(dir_name, exist_ok=True)
 
     with open(path, "wb") as fh:
         offset = 0

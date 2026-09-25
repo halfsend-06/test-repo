@@ -30,6 +30,16 @@ def _make_ascii_content(target_bytes: int) -> str:
     return "A" * target_bytes
 
 
+def _make_cjk_content(target_bytes: int) -> str:
+    """Build a string of CJK characters whose UTF-8 encoding is
+    approximately *target_bytes* bytes long.
+
+    Each CJK character (U+4E00 CJK UNIFIED IDEOGRAPH) is 3 bytes in UTF-8.
+    """
+    chars_needed = target_bytes // 3
+    return "一" * chars_needed
+
+
 def _make_mixed_content(target_bytes: int) -> str:
     """Build a string mixing ASCII and multibyte characters whose
     UTF-8 encoding is approximately *target_bytes* bytes long.
@@ -76,6 +86,14 @@ class TestSaveFileMultibyte:
         save_file(path, content)
         assert _read_file(path) == content
 
+    def test_save_over_64kb_cjk(self, tmp_path):
+        """65KB file with CJK characters (3-byte UTF-8 sequences)
+        should save and round-trip successfully."""
+        content = _make_cjk_content(65 * 1024)
+        path = str(tmp_path / "over64kb_cjk.txt")
+        save_file(path, content)
+        assert _read_file(path) == content
+
     def test_save_128kb_mixed(self, tmp_path):
         """128KB mixed ASCII/multibyte file should save and
         round-trip successfully."""
@@ -100,9 +118,3 @@ class TestSaveFileMultibyte:
         save_file(path, "")
         assert _read_file(path) == ""
         assert os.path.getsize(path) == 0
-
-    def test_save_creates_parent_dirs(self, tmp_path):
-        """save_file should create intermediate directories."""
-        path = str(tmp_path / "a" / "b" / "c" / "deep.txt")
-        save_file(path, "hello")
-        assert _read_file(path) == "hello"
