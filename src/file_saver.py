@@ -11,11 +11,6 @@ import os
 BUFFER_SIZE = 65536  # 64KB
 
 
-def _byte_length(data: str) -> int:
-    """Return the byte length of a string when encoded as UTF-8."""
-    return len(data.encode("utf-8"))
-
-
 def save_file(path: str, content: str) -> None:
     """Save content to a file, handling UTF-8 multibyte characters correctly.
 
@@ -42,14 +37,3 @@ def save_file(path: str, content: str) -> None:
             offset = end
 
 
-def read_file(path: str) -> str:
-    """Read a UTF-8 encoded file and return its contents as a string.
-
-    Args:
-        path: Source file path.
-
-    Returns:
-        The decoded text content of the file.
-    """
-    with open(path, "rb") as fh:
-        return fh.read().decode("utf-8")

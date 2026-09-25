@@ -5,9 +5,14 @@ at various file sizes, especially around the 64KB buffer boundary.
 """
 
 import os
-import tempfile
 
-from src.file_saver import read_file, save_file
+from src.file_saver import save_file
+
+
+def _read_file(path: str) -> str:
+    """Read a UTF-8 file inline (no dependency on src.file_saver.read_file)."""
+    with open(path, "rb") as fh:
+        return fh.read().decode("utf-8")
 
 
 def _make_multibyte_content(target_bytes: int) -> str:
@@ -45,7 +50,15 @@ class TestSaveFileMultibyte:
         content = _make_multibyte_content(63 * 1024)
         path = str(tmp_path / "under64kb.txt")
         save_file(path, content)
-        assert read_file(path) == content
+        assert _read_file(path) == content
+
+    def test_save_exact_64kb_multibyte(self, tmp_path):
+        """Exact 64KB (65536 bytes) file with multibyte UTF-8 chars
+        should save and round-trip successfully (boundary case)."""
+        content = _make_multibyte_content(65536)
+        path = str(tmp_path / "exact64kb.txt")
+        save_file(path, content)
+        assert _read_file(path) == content
 
     def test_save_over_64kb_multibyte(self, tmp_path):
         """65KB file with multibyte UTF-8 chars should save and
@@ -53,7 +66,7 @@ class TestSaveFileMultibyte:
         content = _make_multibyte_content(65 * 1024)
         path = str(tmp_path / "over64kb.txt")
         save_file(path, content)
-        assert read_file(path) == content
+        assert _read_file(path) == content
 
     def test_save_over_64kb_ascii(self, tmp_path):
         """65KB ASCII-only file should save and round-trip
@@ -61,7 +74,7 @@ class TestSaveFileMultibyte:
         content = _make_ascii_content(65 * 1024)
         path = str(tmp_path / "over64kb_ascii.txt")
         save_file(path, content)
-        assert read_file(path) == content
+        assert _read_file(path) == content
 
     def test_save_128kb_mixed(self, tmp_path):
         """128KB mixed ASCII/multibyte file should save and
@@ -69,7 +82,7 @@ class TestSaveFileMultibyte:
         content = _make_mixed_content(128 * 1024)
         path = str(tmp_path / "mixed128kb.txt")
         save_file(path, content)
-        assert read_file(path) == content
+        assert _read_file(path) == content
 
     def test_byte_length_matches(self, tmp_path):
         """Written file byte length must equal the UTF-8 encoded
@@ -85,11 +98,11 @@ class TestSaveFileMultibyte:
         """Saving an empty string should produce an empty file."""
         path = str(tmp_path / "empty.txt")
         save_file(path, "")
-        assert read_file(path) == ""
+        assert _read_file(path) == ""
         assert os.path.getsize(path) == 0
 
     def test_save_creates_parent_dirs(self, tmp_path):
         """save_file should create intermediate directories."""
         path = str(tmp_path / "a" / "b" / "c" / "deep.txt")
         save_file(path, "hello")
-        assert read_file(path) == "hello"
+        assert _read_file(path) == "hello"
