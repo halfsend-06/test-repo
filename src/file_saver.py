@@ -6,7 +6,7 @@ rather than character count.
 """
 
 # Buffer size threshold in bytes.
-BUFFER_SIZE = 65536  # 64KB
+_BUFFER_SIZE = 65536  # 64KB
 
 
 def save_file(path: str, content: str) -> None:
@@ -27,7 +27,7 @@ def save_file(path: str, content: str) -> None:
         offset = 0
         total = len(encoded)
         while offset < total:
-            end = min(offset + BUFFER_SIZE, total)
+            end = min(offset + _BUFFER_SIZE, total)
             fh.write(encoded[offset:end])
             offset = end
 
