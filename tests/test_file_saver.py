@@ -6,11 +6,14 @@ at various file sizes, especially around the 64KB buffer boundary.
 
 import os
 
-from src.file_saver import save_file
+from src.file_saver import BUFFER_SIZE, save_file
 
 
 def _read_file(path: str) -> str:
-    """Read a UTF-8 file inline (reads directly to avoid depending on the module under test)."""
+    """Read a UTF-8 file inline.
+
+    Reads directly to avoid depending on the module under test.
+    """
     with open(path, "rb") as fh:
         return fh.read().decode("utf-8")
 
@@ -65,7 +68,7 @@ class TestSaveFile:
     def test_save_exact_64kb_multibyte(self, tmp_path):
         """Exact 64KB (65536 bytes) file with multibyte UTF-8 chars
         should save and round-trip successfully (boundary case)."""
-        content = _make_multibyte_content(65536)
+        content = _make_multibyte_content(BUFFER_SIZE)
         path = str(tmp_path / "exact64kb.txt")
         save_file(path, content)
         assert _read_file(path) == content
