@@ -10,7 +10,7 @@ from src.file_saver import save_file
 
 
 def _read_file(path: str) -> str:
-    """Read a UTF-8 file inline (no dependency on src.file_saver.read_file)."""
+    """Read a UTF-8 file inline (reads directly to avoid depending on the module under test)."""
     with open(path, "rb") as fh:
         return fh.read().decode("utf-8")
 
@@ -51,8 +51,8 @@ def _make_mixed_content(target_bytes: int) -> str:
     return ("A\U0001f600" * pairs) + ("A" * remainder)
 
 
-class TestSaveFileMultibyte:
-    """Test saving files with multibyte UTF-8 characters."""
+class TestSaveFile:
+    """Test saving files with various content types and sizes."""
 
     def test_save_under_64kb_multibyte(self, tmp_path):
         """63KB file with multibyte UTF-8 chars should save and

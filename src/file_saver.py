@@ -13,7 +13,7 @@ def save_file(path: str, content: str) -> None:
     """Save content to a file, handling UTF-8 multibyte characters correctly.
 
     The content is written in chunks whose size is determined by byte
-    length, not character count.  This prevents buffer overflows when
+    length, not character count. This prevents buffer overflows when
     the text contains multibyte UTF-8 characters (e.g. emoji or CJK)
     that cause the byte representation to exceed the buffer boundary.
 
